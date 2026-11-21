@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ink of Voice (vertical wave)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #2A2A2A; /* スマホフレームの外側（周囲の背景） */
+    overscroll-behavior: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  }
+  body { display: flex; align-items: center; justify-content: center; }
+
+  /* ---------- スマホサイズのフレーム（一旦この中に収める） ---------- */
+  #phoneFrame {
+    position: relative;
+    width: 390px; height: 844px; /* iPhone相当のサイズ。実機では画面いっぱいに広げる想定 */
+    max-width: 100vw; max-height: 100vh;
+    overflow: hidden;
+    background: #EFEDE7;
+    border-radius: 28px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+  canvas#glcanvas {
+    display: block; position: absolute; inset: 0; width: 100%; height: 100%;
+  }
+
+  /* ---------- 色選択画面 ---------- */
+  #colorPicker {
+    position: absolute; inset: 0; z-index: 30;
+    background: #EFEDE7;
+    display: flex; flex-direction: column; align-items: center;
+    overflow-y: auto; padding: 26px 16px 110px;
+  }
+  #colorPicker h1 {
+    font-family: 'Playfair Display', serif; font-weight: 500;
+    font-size: 23px; letter-spacing: 0.01em; color: #141414;
+    margin: 30px 0 26px; text-align: center;
+  }
+  #colorPicker h1 .numFix {
+    font-variant-numeric: lining-nums;
+    font-feature-settings: "lnum" 1;
+  }
+
+  /* ---------- 色のグリッド（丸い角のカード＋色名） ---------- */
+  .paletteGrid {
+    width: 100%; display: grid;
+    grid-template-columns: repeat(10, 1fr); gap: 4px;
+  }
+  .swatch {
+    position: relative; border-radius: 7px; cursor: pointer;
+    aspect-ratio: 1 / 1.1;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 3px;
+    transform: scale(1); transition: transform 0.12s ease, opacity 0.12s ease;
+  }
+  .swatch .swatchName {
+    font-family: 'EB Garamond', serif; font-size: 5.5px;
+    letter-spacing: 0; text-transform: lowercase;
+  }
+  .swatch.textDark .swatchName { color: rgba(20,20,20,0.5); }
+  .swatch.textLight .swatchName { color: rgba(255,255,255,0.8); }
+  .swatch:hover { transform: scale(1.05); }
+  .swatch.selected { box-shadow: 0 0 0 2px rgba(20,20,20,0.6); transform: scale(1.03); }
+  .swatch.disabled { opacity: 0.32; cursor: default; }
+  .swatch.disabled:hover { transform: scale(1); }
+
+  #pickerFooter {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+    background: linear-gradient(to top, #EFEDE7 68%, rgba(239,237,231,0));
+    padding: 30px 20px 26px; display: flex; flex-direction: column;
+    align-items: center; gap: 16px;
+  }
+  #selectionSlots { display: flex; gap: 11px; }
+  .slot {
+    width: 46px; height: 46px; border-radius: 11px;
+    border: 1.5px solid rgba(20,20,20,0.25); background: transparent;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .slot.filled { border-color: transparent; }
+  #pickerStart {
+    width: 100%; max-width: 320px;
+    background: #CFCCC4; color: #fff; border: none;
+    padding: 13px 0; border-radius: 9px;
+    font-family: 'Playfair Display', serif; font-size: 14px;
+    letter-spacing: 0.1em; cursor: pointer;
+    opacity: 1; pointer-events: none; transition: background 0.2s ease;
+  }
+  #pickerStart.ready { background: #141414; pointer-events: auto; }
+
+  /* ---------- マイク許可画面 ---------- */
+  #micStart {
+    position: absolute; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(239,237,231,0.92);
+    text-align: center; cursor: pointer;
+  }
+  #micStart p {
+    margin: 0; padding: 0 28px; font-family: 'Playfair Display', serif;
+    font-size: 15px; letter-spacing: 0.02em; color: #141414; line-height: 1.9;
+  }
+  #micStart span { display: block; font-family: -apple-system, sans-serif; font-size: 11px; opacity: 0.55; margin-top: 10px; letter-spacing: 0.02em; }
+  #micStart.hidden { display: none; }
+
+  /* ---------- 声の波形（縦向き）。中央＝注がれる源 ---------- */
+  #waveCanvas {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 15; pointer-events: none;
+    width: 140px; height: 300px;
+  }
+  #waveCanvas.hidden { display: none; }
+
+  /* ---------- 上部バー：Oil ↔ Water（色の混ざり具合） ---------- */
+  #topBar {
+    position: absolute; left: 22px; right: 22px; top: 20px; z-index: 16;
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Playfair Display', serif; color: #fff;
+    font-size: 12.5px; letter-spacing: 0.05em;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  }
+  #topBar.hidden { display: none; }
+  #topBar input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 1px; background: rgba(255,255,255,0.65);
+    outline: none; margin: 0 2px;
+  }
+  #topBar input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #fff; cursor: pointer;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
+  }
+  #topBar input[type="range"]::-moz-range-thumb {
+    width: 9px; height: 9px; border-radius: 50%; border: none;
+    background: #fff; cursor: pointer;
+  }
+  #topBar input[type="range"]::-moz-range-track {
+    background: rgba(255,255,255,0.65); height: 1px;
+  }
+
+  /* ---------- 左右の縦書きテキスト（タイトル／日付） ---------- */
+  .vText {
+    position: absolute; top: 50%; z-index: 16;
+    writing-mode: vertical-rl; text-orientation: mixed;
+    transform: translateY(-50%);
+    font-family: 'Playfair Display', serif; color: #fff;
+    font-size: 13px; letter-spacing: 0.14em;
+    opacity: 0.92; pointer-events: none; white-space: nowrap;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  }
+  .vText.hidden { display: none; }
+  #sideTitle { left: 16px; transform: translateY(-50%) rotate(180deg); }
+  #sideDate { right: 16px; }
+
+  /* ---------- 下部：Printボタン ---------- */
+  #saveButton {
+    position: absolute; left: 16px; right: 16px; bottom: 18px; z-index: 16;
+    background: rgba(10,10,10,0.4);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 8px;
+    color: #fff; font-family: 'Playfair Display', serif;
+    font-size: 12.5px; letter-spacing: 0.16em;
+    padding: 11px 0; text-align: center; cursor: pointer;
+    backdrop-filter: blur(3px);
+    transition: background 0.15s ease;
+  }
+  #saveButton:active { background: rgba(10,10,10,0.65); }
+  #saveButton.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="phoneFrame">
+<canvas id="glcanvas"></canvas>
+
+<div id="colorPicker">
+  <h1>Choose <span class="numFix">4</span> Colors</h1>
+  <div class="paletteGrid" id="paletteGrid"></div>
+</div>
+<div id="pickerFooter">
+  <div id="selectionSlots">
+    <div class="slot" data-slot="0"></div>
+    <div class="slot" data-slot="1"></div>
+    <div class="slot" data-slot="2"></div>
+    <div class="slot" data-slot="3"></div>
+  </div>
+  <button id="pickerStart">Start</button>
+</div>
+
+<div id="micStart" class="hidden">
+  <p>Tap to enable your microphone<span>Paint pours from the center while you speak</span></p>
+</div>
+
+<!-- 声の波形を縦向きに表示する。中央＝絵の具が注がれる源 -->
+<canvas id="waveCanvas" class="hidden"></canvas>
+
+<!-- 上部：Oil/Waterバー。左右：作品タイトルと日付。下部：Printボタン -->
+<div id="topBar" class="hidden">
+  <span>Oil</span>
+  <input type="range" id="mixSlider" min="0" max="100" value="0" step="1">
+  <span>Water</span>
+</div>
+<div id="sideTitle" class="vText hidden">Ink of Voice</div>
+<div id="sideDate" class="vText hidden"></div>
+<button id="saveButton" class="hidden">Print</button>
+
+</div><!-- /#phoneFrame -->
+
+<!-- ===================== SHADERS ===================== -->
+<script id="baseVertex" type="x-shader/x-vertex">#version 300 es
+layout(location = 0) in vec2 aPosition;
+out vec2 vUv;
+out vec2 vL;
+out vec2 vR;
+out vec2 vT;
+out vec2 vB;
+uniform vec2 texelSize;
+void main () {
+  vUv = aPosition * 0.5 + 0.5;
+  vL = vUv - vec2(texelSize.x, 0.0);
+  vR = vUv + vec2(texelSize.x, 0.0);
+  vT = vUv + vec2(0.0, texelSize.y);
+  vB = vUv - vec2(0.0, texelSize.y);
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+</script>
+
+<script id="clearFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTexture;
+uniform float value;
+out vec4 fragColor;
+void main () {
+  fragColor = value * texture(uTexture, vUv);
+}
+</script>
+
+<script id="splatFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTarget;
+uniform float aspectRatio;
+uniform vec3 color;
+uniform vec2 point;
+uniform float radius;
+uniform float clampMax;
+uniform float isColorTarget; // 1.0=絵の具（上書き合成） / 0.0=速度場（足し算のまま）
+uniform float alphaStrength; // 水の濃度。1.0が標準、大きいほど一滴の濃さが濃くなる
+out vec4 fragColor;
+void main () {
+  vec2 p = vUv - point.xy;
+  p.x *= aspectRatio;
+  float d = clamp(exp(-dot(p, p) / radius), 0.0, 1.0);
+  vec4 base = texture(uTarget, vUv);
+
+  // 速度場は力として足し算するのが物理的に正しいが、絵の具（色）を足し算すると
+  // 違う色が同じ場所に重なるたびにパレットにない中間色（濁った色）へ寄ってしまう。
+  // 色相については「新しい絵の具が古い絵の具の上に乗る」上書き合成にする
+  vec3 additiveRGB = min(base.rgb + d * color, vec3(clampMax));
+  vec3 overlayRGB = mix(base.rgb, color, d);
+
+  // 不透明度（どれだけ絵の具が乗っているか）は色の明るさと無関係に、
+  // 標準的な「over」合成で独立に積み上げる。これにより暗い色でも
+  // 背景に透けて薄まらず、彩度がきちんと保たれる。alphaStrengthで濃度を調整できる
+  float dAlpha = clamp(d * alphaStrength, 0.0, 1.0);
+  float newAlpha = base.a + dAlpha * (1.0 - base.a);
+
+  vec3 outRGB = mix(additiveRGB, overlayRGB, isColorTarget);
+  float outAlpha = mix(base.a, newAlpha, isColorTarget);
+  fragColor = vec4(outRGB, outAlpha);
+}
+</script>
+
+<!-- 色IDの塗りつけ：ぼかして混ぜるのではなく、半径の内側か外側かで「置き換えるか/しないか」の
+     二択にする。これにより、異なる色同士が重なっても中間色が生まれない -->
+<script id="splatIdFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTarget;
+uniform float aspectRatio;
+uniform vec2 point;
+uniform float radius;
+uniform float idValue;
+out vec4 fragColor;
+void main () {
+  vec2 p = vUv - point.xy;
+  p.x *= aspectRatio;
+  float d = clamp(exp(-dot(p, p) / radius), 0.0, 1.0);
+  float base = texture(uTarget, vUv).r;
+  float m = step(0.5, d); // ぼかさない：塗るか/塗らないかのハードな境界
+  float outId = mix(base, idValue, m);
+  fragColor = vec4(outId, 0.0, 0.0, 1.0);
+}
+</script>
+
+<script id="advectionFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uVelocity;
+uniform sampler2D uSource;
+uniform vec2 texelSize;
+uniform float dt;
+uniform float dissipation;
+out vec4 fragColor;
+void main () {
+  vec2 vel = texture(uVelocity, vUv).xy;
+  vec2 coord = vUv - dt * vel * texelSize;
+  vec4 result = texture(uSource, coord);
+  float decay = 1.0 + dissipation * dt;
+  fragColor = result / decay;
+}
+</script>
+
+<script id="divergenceFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vL;
+in vec2 vR;
+in vec2 vT;
+in vec2 vB;
+uniform sampler2D uVelocity;
+out vec4 fragColor;
+void main () {
+  float L = texture(uVelocity, vL).x;
+  float R = texture(uVelocity, vR).x;
+  float T = texture(uVelocity, vT).y;
+  float B = texture(uVelocity, vB).y;
+  vec2 C = texture(uVelocity, vUv).xy;
+  if (vL.x < 0.0) { L = -C.x; }
+  if (vR.x > 1.0) { R = -C.x; }
+  if (vT.y > 1.0) { T = -C.y; }
+  if (vB.y < 0.0) { B = -C.y; }
+  float div = 0.5 * (R - L + T - B);
+  fragColor = vec4(div, 0.0, 0.0, 1.0);
+}
+</script>
+
+<script id="curlFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vL;
+in vec2 vR;
+in vec2 vT;
+in vec2 vB;
+uniform sampler2D uVelocity;
+out vec4 fragColor;
+void main () {
+  float L = texture(uVelocity, vL).y;
+  float R = texture(uVelocity, vR).y;
+  float T = texture(uVelocity, vT).x;
+  float B = texture(uVelocity, vB).x;
+  float vorticity = R - L - T + B;
+  fragColor = vec4(0.5 * vorticity, 0.0, 0.0, 1.0);
+}
+</script>
+
+<script id="vorticityFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vL;
+in vec2 vR;
+in vec2 vT;
+in vec2 vB;
+uniform sampler2D uVelocity;
+uniform sampler2D uCurl;
+uniform float curlStrength;
+uniform float dt;
+out vec4 fragColor;
+void main () {
+  float L = texture(uCurl, vL).x;
+  float R = texture(uCurl, vR).x;
+  float T = texture(uCurl, vT).x;
+  float B = texture(uCurl, vB).x;
+  float C = texture(uCurl, vUv).x;
+  vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
+  force /= length(force) + 0.0001;
+  force *= curlStrength * C;
+  force.y *= -1.0;
+  vec2 vel = texture(uVelocity, vUv).xy;
+  vel += force * dt;
+  vel = clamp(vel, -1000.0, 1000.0);
+  fragColor = vec4(vel, 0.0, 1.0);
+}
+</script>
+
+<script id="pressureFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vL;
+in vec2 vR;
+in vec2 vT;
+in vec2 vB;
+uniform sampler2D uPressure;
+uniform sampler2D uDivergence;
+out vec4 fragColor;
+void main () {
+  float L = texture(uPressure, vL).x;
+  float R = texture(uPressure, vR).x;
+  float T = texture(uPressure, vT).x;
+  float B = texture(uPressure, vB).x;
+  float divergence = texture(uDivergence, vUv).x;
+  float pressure = (L + R + B + T - divergence) * 0.25;
+  fragColor = vec4(pressure, 0.0, 0.0, 1.0);
+}
+</script>
+
+<script id="gradientSubtractFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vL;
+in vec2 vR;
+in vec2 vT;
+in vec2 vB;
+uniform sampler2D uPressure;
+uniform sampler2D uVelocity;
+out vec4 fragColor;
+void main () {
+  float L = texture(uPressure, vL).x;
+  float R = texture(uPressure, vR).x;
+  float T = texture(uPressure, vT).x;
+  float B = texture(uPressure, vB).x;
+  vec2 vel = texture(uVelocity, vUv).xy;
+  vel -= vec2(R - L, T - B) * 0.5;
+  fragColor = vec4(vel, 0.0, 1.0);
+}
+</script>
+
+<!-- 表示用シェーダー：なめらかな艶消し仕上げ。発光（白飛び）はしない -->
+<script id="displayFrag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vL;
+in vec2 vR;
+in vec2 vT;
+in vec2 vB;
+uniform sampler2D uDye;
+uniform sampler2D uPigment;
+uniform vec3 stop0;
+uniform vec3 stop1;
+uniform vec3 stop2;
+uniform vec3 stop3;
+uniform vec3 bgColor;
+uniform float mixAmount;  // 0=色を一切混ぜない / 1=隣の色となめらかに混ざる
+uniform float ditherOn;   // 1.0でピクセル風のドット減色表現にする
+out vec4 fragColor;
+
+const float BAYER8[64] = float[64](
+   0.0,32.0, 8.0,40.0, 2.0,34.0,10.0,42.0,
+  48.0,16.0,56.0,24.0,50.0,18.0,58.0,26.0,
+  12.0,44.0, 4.0,36.0,14.0,46.0, 6.0,38.0,
+  60.0,28.0,52.0,20.0,62.0,30.0,54.0,22.0,
+   3.0,35.0,11.0,43.0, 1.0,33.0, 9.0,41.0,
+  51.0,19.0,59.0,27.0,49.0,17.0,57.0,25.0,
+  15.0,47.0, 7.0,39.0,13.0,45.0, 5.0,37.0,
+  63.0,31.0,55.0,23.0,61.0,29.0,53.0,21.0
+);
+float bayerThreshold() {
+  ivec2 p = ivec2(mod(gl_FragCoord.xy, 8.0));
+  int idx = p.y * 8 + p.x;
+  return (BAYER8[idx] + 0.5) / 64.0;
+}
+
+// 色ID（0〜1、声の高さに対応）を、選ばれた4色のグラデーションに変換する。
+// IDそのものは隣と混ざらずに運ばれてくるので、ここでの変換も「今そのピクセルに
+// 実際に置かれている1つの色」をそのまま返すだけで、他の色とは混ざらない
+vec3 colorFromId(float t) {
+  t = clamp(t, 0.0, 1.0);
+  float pos = t * 3.0;
+  float i = min(floor(pos), 2.0);
+  float f = pos - i;
+  vec3 a = stop0;
+  vec3 b = stop1;
+  if (i >= 1.5) { a = stop2; b = stop3; }
+  else if (i >= 0.5) { a = stop1; b = stop2; }
+  return mix(a, b, f);
+}
+
+void main () {
+  vec4 d = texture(uDye, vUv);
+  float pigmentId = texture(uPigment, vUv).r;
+  vec3 hardColor = colorFromId(pigmentId);
+  vec3 softColor = min(d.rgb, vec3(1.0)); // 流体のまま滲んでいく、なめらかに混ざった色
+  vec3 c = mix(hardColor, softColor, mixAmount);
+  // 不透明度は輝度（明るさ）からではなく、積み上がった絵の具の量（アルファ）から
+  // 直接決める。暗い色でも背景に透けて薄まらず、彩度がきちんと保たれる
+  float alpha = clamp(d.a, 0.0, 1.0);
+
+  float lL = dot(texture(uDye, vL).rgb, vec3(0.299, 0.587, 0.114));
+  float lR = dot(texture(uDye, vR).rgb, vec3(0.299, 0.587, 0.114));
+  float lT = dot(texture(uDye, vT).rgb, vec3(0.299, 0.587, 0.114));
+  float lB = dot(texture(uDye, vB).rgb, vec3(0.299, 0.587, 0.114));
+
+  vec3 normal = normalize(vec3(lL - lR, lB - lT, 0.35));
+  vec3 lightDir = normalize(vec3(-0.4, 0.6, 0.7));
+  float diff = max(dot(normal, lightDir), 0.0);
+
+  vec3 base = mix(bgColor, c, alpha);
+  vec3 shaded = base * mix(0.9, 1.03, diff);
+
+  if (ditherOn > 0.5) {
+    // 減色＋ベイヤー8x8の閾値でドット状に見せる、ピクセル風／ハーフトーン表現
+    const float levels = 5.0;
+    float t = bayerThreshold() - 0.5;
+    vec3 dithered = shaded + t / levels;
+    shaded = clamp(floor(dithered * levels) / (levels - 1.0), 0.0, 1.0);
+  }
+
+  fragColor = vec4(shaded, 1.0);
+}
+</script>
+
+<!-- ===================== MAIN SCRIPT ===================== -->
+<script>
+(function () {
+  "use strict";
+
+  /* -----------------------------------------------------------
+   *  Material Design 標準カラーパレット（19色相 × 10段階）
+   * --------------------------------------------------------- */
+  const PALETTE = [
+    { name: "Red",         shades: ["#FFEBEE","#FFCDD2","#EF9A9A","#E57373","#EF5350","#F44336","#E53935","#D32F2F","#C62828","#B71C1C"],
+      names: ["blush","petal","coral","punch","cherry","scarlet","ruby","crimson","garnet","maroon"] },
+    { name: "Pink",        shades: ["#FCE4EC","#F8BBD0","#F48FB1","#F06292","#EC407A","#E91E63","#D81B60","#C2185B","#AD1457","#880E4F"],
+      names: ["cotton","flamingo","bubblegum","rose","peony","fuchsia","berry","magenta","orchid","mulberry"] },
+    { name: "Purple",      shades: ["#F3E5F5","#E1BEE7","#CE93D8","#BA68C8","#AB47BC","#9C27B0","#8E24AA","#7B1FA2","#6A1B9A","#4A148C"],
+      names: ["lilac","iris","orchid","violet","amethyst","plum","grape","royalty","aubergine","eggplant"] },
+    { name: "Deep Purple", shades: ["#EDE7F6","#D1C4E9","#B39DDB","#9575CD","#7E57C2","#673AB7","#5E35B1","#512DA8","#4527A0","#311B92"],
+      names: ["wisteria","periwinkle","lavender","indigo","violet","grape","amethyst","royal","plum","midnight"] },
+    { name: "Indigo",      shades: ["#E8EAF6","#C5CAE9","#9FA8DA","#7986CB","#5C6BC0","#3F51B5","#3949AB","#303F9F","#283593","#1A237E"],
+      names: ["mist","powder","denim","cornflower","sapphire","cobalt","royal","navy","midnight","ink"] },
+    { name: "Blue",        shades: ["#E3F2FD","#BBDEFB","#90CAF9","#64B5F6","#42A5F5","#2196F3","#1E88E5","#1976D2","#1565C0","#0D47A1"],
+      names: ["sky","powder","breeze","azure","cerulean","ocean","cobalt","sapphire","navy","midnight"] },
+    { name: "Light Blue",  shades: ["#E1F5FE","#B3E5FC","#81D4FA","#4FC3F7","#29B6F6","#03A9F4","#039BE5","#0288D1","#0277BD","#01579B"],
+      names: ["frost","ice","aqua","sky","sea","lagoon","teal","cerulean","deep sea","abyss"] },
+    { name: "Cyan",        shades: ["#E0F7FA","#B2EBF2","#80DEEA","#4DD0E1","#26C6DA","#00BCD4","#00ACC1","#0097A7","#00838F","#006064"],
+      names: ["mint","foam","aqua","turquoise","lagoon","teal","tiffany","deep teal","pine","pond"] },
+    { name: "Teal",        shades: ["#E0F2F1","#B2DFDB","#80CBC4","#4DB6AC","#26A69A","#009688","#00897B","#00796B","#00695C","#004D40"],
+      names: ["seafoam","mint","jade","emerald","teal","pine","forest","deep teal","pond","moss"] },
+    { name: "Green",       shades: ["#E8F5E9","#C8E6C9","#A5D6A7","#81C784","#66BB6A","#4CAF50","#43A047","#388E3C","#2E7D32","#1B5E20"],
+      names: ["mint","sage","leaf","meadow","grass","fern","forest","pine","jungle","moss"] },
+    { name: "Light Green", shades: ["#F1F8E9","#DCEDC8","#C5E1A5","#AED581","#9CCC65","#8BC34A","#7CB342","#689F38","#558B2F","#33691E"],
+      names: ["sprout","lime","pear","meadow","spring","grass","olive","moss","fern","forest"] },
+    { name: "Lime",        shades: ["#F9FBE7","#F0F4C3","#E6EE9C","#DCE775","#D4E157","#CDDC39","#C0CA33","#AFB42B","#9E9D24","#827717"],
+      names: ["sprout","citrus","lime","chartreuse","zest","olive","moss","khaki","army","swamp"] },
+    { name: "Light Yellow",shades: ["#FFF8E1","#FFECB3","#FFE082","#FFD54F","#FFCA28","#FFC107","#FFB300","#FFA000","#FF8F00","#FF6F00"],
+      names: ["cream","butter","vanilla","honey","gold","amber","mustard","ochre","bronze","umber"] },
+    { name: "Yellow",      shades: ["#FFFDE7","#FFF9C4","#FFF59D","#FFF176","#FFEE58","#FFEB3B","#FDD835","#FBC02D","#F9A825","#F57F17"],
+      names: ["ivory","lemon","sunny","gold","mustard","amber","honey","bronze","ochre","umber"] },
+    { name: "Orange",      shades: ["#FFF3E0","#FFE0B2","#FFCC80","#FFB74D","#FFA726","#FF9800","#FB8C00","#F57C00","#EF6C00","#E65100"],
+      names: ["peach","apricot","melon","tangerine","orange","pumpkin","rust","terracotta","clay","sienna"] },
+    { name: "Deep Orange", shades: ["#FBE9E7","#FFCCBC","#FFAB91","#FF8A65","#FF7043","#FF5722","#F4511E","#E64A19","#D84315","#BF360C"],
+      names: ["coral","salmon","melon","sunset","pumpkin","autumn","rust","brick","clay","sienna"] },
+    { name: "Grey",        shades: ["#FAFAFA","#F5F5F5","#EEEEEE","#E0E0E0","#BDBDBD","#9E9E9E","#757575","#616161","#424242","#212121"],
+      names: ["cloud","fog","mist","silver","dove","stone","slate","charcoal","graphite","ash"] },
+    { name: "Blue Grey",   shades: ["#ECEFF1","#CFD8DC","#B0BEC5","#90A4AE","#78909C","#607D8B","#546E7A","#455A64","#37474F","#263238"],
+      names: ["mist","fog","dove","slate","storm","denim","steel","charcoal","navy","midnight"] },
+    { name: "Brown",       shades: ["#EFEBE9","#D7CCC8","#BCAAA4","#A1887F","#8D6E63","#795548","#6D4C41","#5D4037","#4E342E","#3E2723"],
+      names: ["sand","beige","khaki","taupe","clay","mocha","umber","chestnut","espresso","raisin"] },
+  ];
+
+  function hexToRgb01(hex) {
+    const v = parseInt(hex.slice(1), 16);
+    return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+  }
+  function luminance(rgb) { return rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114; }
+
+  const paletteGrid = document.getElementById("paletteGrid");
+  const pickerStartBtn = document.getElementById("pickerStart");
+  const slotEls = Array.from(document.querySelectorAll("#selectionSlots .slot"));
+  const selectedHexes = [];
+
+  // 行の見出しは使わず、全ての色をPantone風の名前付きカードとして
+  // そのまま並べたグリッドにする
+  PALETTE.forEach((row) => {
+    row.shades.forEach((hex, i) => {
+      const sw = document.createElement("div");
+      sw.className = "swatch " + (luminance(hexToRgb01(hex)) > 0.6 ? "textDark" : "textLight");
+      sw.style.background = hex;
+      sw.dataset.hex = hex;
+      const nameEl = document.createElement("span");
+      nameEl.className = "swatchName";
+      nameEl.textContent = row.names[i];
+      sw.appendChild(nameEl);
+      sw.addEventListener("click", () => toggleSwatch(sw, hex));
+      paletteGrid.appendChild(sw);
+    });
+  });
+
+  function toggleSwatch(el, hex) {
+    const idx = selectedHexes.indexOf(hex);
+    if (idx >= 0) {
+      selectedHexes.splice(idx, 1);
+      el.classList.remove("selected");
+    } else {
+      if (selectedHexes.length >= 4) return;
+      selectedHexes.push(hex);
+      el.classList.add("selected");
+    }
+    refreshPickerUI();
+  }
+
+  function refreshPickerUI() {
+    slotEls.forEach((slot, i) => {
+      const hex = selectedHexes[i];
+      slot.style.background = hex || "transparent";
+      slot.classList.toggle("filled", !!hex);
+    });
+    const full = selectedHexes.length >= 4;
+    pickerStartBtn.classList.toggle("ready", full);
+    document.querySelectorAll(".swatch").forEach((sw) => {
+      if (!sw.classList.contains("selected")) sw.classList.toggle("disabled", full);
+    });
+  }
+
+  let COLOR_STOPS = null; // 暗い順に並んだ4色（声の低い〜高いに対応）
+
+  function rgb01ToCss(rgb, alpha) {
+    const a = alpha === undefined ? 1 : alpha;
+    return `rgba(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)}, ${a})`;
+  }
+
+  pickerStartBtn.addEventListener("click", () => {
+    if (selectedHexes.length < 4) return;
+    COLOR_STOPS = selectedHexes.map(hexToRgb01).sort((a, b) => luminance(a) - luminance(b));
+    document.getElementById("colorPicker").remove();
+    document.getElementById("pickerFooter").remove();
+    document.getElementById("micStart").classList.remove("hidden");
+  });
+
+  function colorFromPitch(t) {
+    t = Math.min(Math.max(t, 0), 1);
+    const n = COLOR_STOPS.length - 1;
+    const pos = t * n;
+    const i = Math.min(Math.floor(pos), n - 1);
+    const f = pos - i;
+    const a = COLOR_STOPS[i], b = COLOR_STOPS[i + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+
+  /* -----------------------------------------------------------
+   *  声の波形表示（縦向き）：声の高さ→色、声量→横への長さ。
+   *  新しいサンプルが下から流れ込み、古いものは上へ押し出される
+   * --------------------------------------------------------- */
+  const WAVE_HISTORY = 56;
+  const waveHistoryBuf = [];
+  for (let i = 0; i < WAVE_HISTORY; i++) waveHistoryBuf.push({ rgb: [0.85, 0.83, 0.79], amp: 0 });
+  let lastVoiceColor = [0.85, 0.83, 0.79];
+
+  const waveCanvasEl = document.getElementById("waveCanvas");
+  const waveCtx = waveCanvasEl.getContext("2d");
+  let WAVE_W = 140, WAVE_H = 300;
+  function setupWaveCanvas() {
+    const rect = waveCanvasEl.getBoundingClientRect();
+    WAVE_W = rect.width || WAVE_W;
+    WAVE_H = rect.height || WAVE_H;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    waveCanvasEl.width = Math.round(WAVE_W * dpr);
+    waveCanvasEl.height = Math.round(WAVE_H * dpr);
+    waveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function pushWaveSample(rgb, amp) {
+    waveHistoryBuf.push({ rgb, amp });
+    if (waveHistoryBuf.length > WAVE_HISTORY) waveHistoryBuf.shift();
+  }
+
+  function drawWave() {
+    waveCtx.clearRect(0, 0, WAVE_W, WAVE_H);
+    const n = waveHistoryBuf.length;
+    const stepY = WAVE_H / n;
+    const maxLen = WAVE_W * 0.46;
+    waveCtx.lineCap = "round";
+    for (let i = 0; i < n; i++) {
+      const s = waveHistoryBuf[i];
+      const y = i * stepY + stepY / 2;
+      const len = Math.max(2, s.amp * maxLen);
+      waveCtx.strokeStyle = rgb01ToCss(s.rgb, 0.6);
+      waveCtx.lineWidth = Math.max(2, stepY * 0.85);
+      waveCtx.beginPath();
+      waveCtx.moveTo(WAVE_W / 2 - len, y);
+      waveCtx.lineTo(WAVE_W / 2 + len, y);
+      waveCtx.stroke();
+    }
+  }
+
+  /* -----------------------------------------------------------
+   *  調整パラメータ
+   * --------------------------------------------------------- */
+  const CONFIG = {
+    SIM_RESOLUTION: 128,
+    DYE_RESOLUTION: 900,
+    PRESSURE_ITERATIONS: 20,
+    CURL: 13,                  // 渦の強さ。下げて、さらさらした水っぽい渦を抑え重みを出す
+    VELOCITY_DISSIPATION: 0.55, // 高いほど勢いがすぐに落ち着く＝絵の具が重く、水っぽさが減る
+    DENSITY_DISSIPATION: 0.0, // 0＝絵の具は自分では一切薄まらない（完全に永続）
+    PRESSURE_DECAY: 0.8,
+    TIME_SCALE: 1.0,
+
+    POUR_RADIUS: 0.0032,       // 一滴の大きさ。少し大きくして重たい絵の具らしく
+    POUR_FORCE_MIN: 240,       // 声が小さい時の勢い（全体的に弱める）
+    POUR_FORCE_MAX: 900,       // 声が大きい時の勢い（全体的に弱める）
+    POUR_SPLATS_PER_FRAME: 2,  // 1フレームあたりに生まれる絵の具の数
+    POUR_SPAWN_SPREAD: 0.004,  // 源の中心から同心円状に散らす半径（キャンバス幅比）
+
+    PITCH_MIN_HZ: 80,
+    PITCH_MAX_HZ: 600,
+    SILENCE_RMS: 0.012,
+    MAX_RMS: 0.22,
+  };
+  const BG_COLOR = [0.937, 0.929, 0.906];
+
+  // UIのバー/ボタンで調整するパラメータ
+  const waterDensity = 2.5;   // 水の濃度は常に250%固定
+  let colorMixAmount = 0.0;   // 色の混ざり具合（0=混ざらない 〜 1=なめらかに混ざる）
+  const ditherEnabled = false; // ピクセル風は廃止、常にOFF
+
+  /* -----------------------------------------------------------
+   *  WebGL2 セットアップ
+   * --------------------------------------------------------- */
+  const canvas = document.getElementById("glcanvas");
+  const gl = canvas.getContext("webgl2", {
+    alpha: false, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: true,
+  });
+  if (!gl) {
+    document.body.innerHTML = '<p style="font-family:sans-serif;padding:40px;">お使いの環境ではWebGL2がサポートされていません。最新のChrome / Safari / Edgeでお試しください。</p>';
+    return;
+  }
+  gl.getExtension("EXT_color_buffer_float");
+  gl.getExtension("OES_texture_float_linear");
+
+  function supportsFormat(internalFormat, format, type) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, 4, 4, 0, format, type, null);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.deleteTexture(tex); gl.deleteFramebuffer(fbo);
+    return ok;
+  }
+  let TEX_TYPE = gl.HALF_FLOAT, INTERNAL_RGBA = gl.RGBA16F;
+  if (!supportsFormat(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)) { TEX_TYPE = gl.UNSIGNED_BYTE; INTERNAL_RGBA = gl.RGBA8; }
+
+  function compile(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(shader));
+    return shader;
+  }
+  function createProgram(vsSource, fsSource) {
+    const program = gl.createProgram();
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, vsSource));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fsSource));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(program));
+    const uniforms = {};
+    const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < count; i++) {
+      const info = gl.getActiveUniform(program, i);
+      uniforms[info.name] = gl.getUniformLocation(program, info.name);
+    }
+    return { program, uniforms };
+  }
+  const src = (id) => document.getElementById(id).textContent;
+  const vertexSrc = src("baseVertex");
+  const progClear = createProgram(vertexSrc, src("clearFrag"));
+  const progSplat = createProgram(vertexSrc, src("splatFrag"));
+  const progSplatId = createProgram(vertexSrc, src("splatIdFrag"));
+  const progAdvection = createProgram(vertexSrc, src("advectionFrag"));
+  const progDivergence = createProgram(vertexSrc, src("divergenceFrag"));
+  const progCurl = createProgram(vertexSrc, src("curlFrag"));
+  const progVorticity = createProgram(vertexSrc, src("vorticityFrag"));
+  const progPressure = createProgram(vertexSrc, src("pressureFrag"));
+  const progGradientSubtract = createProgram(vertexSrc, src("gradientSubtractFrag"));
+  const progDisplay = createProgram(vertexSrc, src("displayFrag"));
+  function useProgram(p) { gl.useProgram(p.program); }
+
+  const quadVAO = gl.createVertexArray();
+  gl.bindVertexArray(quadVAO);
+  const quadBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
+  function blit(target) {
+    if (target == null) {
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    } else {
+      gl.viewport(0, 0, target.w, target.h);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    }
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  function FBO(w, h, filtering) {
+    this.w = w; this.h = h;
+    this.texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filtering);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filtering);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, INTERNAL_RGBA, w, h, 0, gl.RGBA, TEX_TYPE, null);
+    this.fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texture, 0);
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0); // alpha=0（絵の具の量ゼロ）から始める
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  FBO.prototype.bind = function (unit) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    return unit;
+  };
+  function DoubleFBO(w, h, filtering) {
+    this.w = w; this.h = h;
+    this.read = new FBO(w, h, filtering);
+    this.write = new FBO(w, h, filtering);
+  }
+  DoubleFBO.prototype.swap = function () { const t = this.read; this.read = this.write; this.write = t; };
+
+  let velocity, dye, pigment, divergence, curl, pressure;
+  let simW, simH, dyeW, dyeH;
+
+  function getResolution(resolution) {
+    let aspectRatio = gl.drawingBufferWidth / gl.drawingBufferHeight;
+    if (aspectRatio < 1) aspectRatio = 1.0 / aspectRatio;
+    const min = Math.round(resolution);
+    const max = Math.round(resolution * aspectRatio);
+    if (gl.drawingBufferWidth > gl.drawingBufferHeight) return { width: max, height: min };
+    return { width: min, height: max };
+  }
+  function initFramebuffers() {
+    const simRes = getResolution(CONFIG.SIM_RESOLUTION);
+    const dyeRes = getResolution(CONFIG.DYE_RESOLUTION);
+    simW = simRes.width; simH = simRes.height;
+    dyeW = dyeRes.width; dyeH = dyeRes.height;
+    velocity = new DoubleFBO(simW, simH, gl.LINEAR);
+    dye = new DoubleFBO(dyeW, dyeH, gl.LINEAR);
+    // 色ID専用バッファ：NEARESTで運ぶことで、移流のたびに隣の色と線形補間で
+    // 混ざってしまうのを防ぐ（＝色が絶対に濁らない）
+    pigment = new DoubleFBO(dyeW, dyeH, gl.NEAREST);
+    divergence = new FBO(simW, simH, gl.NEAREST);
+    curl = new FBO(simW, simH, gl.NEAREST);
+    pressure = new DoubleFBO(simW, simH, gl.NEAREST);
+  }
+
+  const phoneFrame = document.getElementById("phoneFrame");
+  function resizeCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = Math.floor(phoneFrame.clientWidth * dpr);
+    const h = Math.floor(phoneFrame.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      initFramebuffers();
+    }
+  }
+
+  function splat(x, y, dx, dy, color, radius, idValue) {
+    const pointX = x / canvas.width;
+    const pointY = 1.0 - y / canvas.height;
+    const aspect = canvas.width / canvas.height;
+    const r = radius || CONFIG.POUR_RADIUS;
+
+    useProgram(progSplat);
+    gl.uniform1i(progSplat.uniforms.uTarget, velocity.read.bind(0));
+    gl.uniform1f(progSplat.uniforms.aspectRatio, aspect);
+    gl.uniform2f(progSplat.uniforms.point, pointX, pointY);
+    gl.uniform3f(progSplat.uniforms.color, dx, dy, 0.0);
+    gl.uniform1f(progSplat.uniforms.radius, r);
+    gl.uniform1f(progSplat.uniforms.clampMax, 5000.0);
+    gl.uniform1f(progSplat.uniforms.isColorTarget, 0.0); // 速度は足し算のまま
+    gl.uniform1f(progSplat.uniforms.alphaStrength, 1.0);
+    blit(velocity.write); velocity.swap();
+
+    gl.uniform1i(progSplat.uniforms.uTarget, dye.read.bind(0));
+    gl.uniform3f(progSplat.uniforms.color, color[0], color[1], color[2]);
+    gl.uniform1f(progSplat.uniforms.clampMax, 1.0);
+    gl.uniform1f(progSplat.uniforms.isColorTarget, 1.0); // 絵の具の「量」は上書き合成
+    gl.uniform1f(progSplat.uniforms.alphaStrength, waterDensity); // 水の濃度
+    blit(dye.write); dye.swap();
+
+    // 色そのもの（色ID）は、ぼかして混ぜずにハードに置き換える
+    if (idValue !== undefined) {
+      useProgram(progSplatId);
+      gl.uniform1i(progSplatId.uniforms.uTarget, pigment.read.bind(0));
+      gl.uniform1f(progSplatId.uniforms.aspectRatio, aspect);
+      gl.uniform2f(progSplatId.uniforms.point, pointX, pointY);
+      gl.uniform1f(progSplatId.uniforms.radius, r);
+      gl.uniform1f(progSplatId.uniforms.idValue, idValue);
+      blit(pigment.write); pigment.swap();
+    }
+  }
+
+  function setTexel(uniforms, w, h) { gl.uniform2f(uniforms.texelSize, 1.0 / w, 1.0 / h); }
+
+  function step(dt) {
+    gl.disable(gl.BLEND);
+
+    useProgram(progCurl);
+    setTexel(progCurl.uniforms, simW, simH);
+    gl.uniform1i(progCurl.uniforms.uVelocity, velocity.read.bind(0));
+    blit(curl);
+
+    useProgram(progVorticity);
+    setTexel(progVorticity.uniforms, simW, simH);
+    gl.uniform1i(progVorticity.uniforms.uVelocity, velocity.read.bind(0));
+    gl.uniform1i(progVorticity.uniforms.uCurl, curl.bind(1));
+    gl.uniform1f(progVorticity.uniforms.curlStrength, CONFIG.CURL);
+    gl.uniform1f(progVorticity.uniforms.dt, dt);
+    blit(velocity.write); velocity.swap();
+
+    useProgram(progDivergence);
+    setTexel(progDivergence.uniforms, simW, simH);
+    gl.uniform1i(progDivergence.uniforms.uVelocity, velocity.read.bind(0));
+    blit(divergence);
+
+    useProgram(progClear);
+    gl.uniform1i(progClear.uniforms.uTexture, pressure.read.bind(0));
+    gl.uniform1f(progClear.uniforms.value, CONFIG.PRESSURE_DECAY);
+    blit(pressure.write); pressure.swap();
+
+    useProgram(progPressure);
+    setTexel(progPressure.uniforms, simW, simH);
+    gl.uniform1i(progPressure.uniforms.uDivergence, divergence.bind(0));
+    for (let i = 0; i < CONFIG.PRESSURE_ITERATIONS; i++) {
+      gl.uniform1i(progPressure.uniforms.uPressure, pressure.read.bind(1));
+      blit(pressure.write); pressure.swap();
+    }
+
+    useProgram(progGradientSubtract);
+    setTexel(progGradientSubtract.uniforms, simW, simH);
+    gl.uniform1i(progGradientSubtract.uniforms.uPressure, pressure.read.bind(0));
+    gl.uniform1i(progGradientSubtract.uniforms.uVelocity, velocity.read.bind(1));
+    blit(velocity.write); velocity.swap();
+
+    useProgram(progAdvection);
+    setTexel(progAdvection.uniforms, simW, simH);
+    gl.uniform1i(progAdvection.uniforms.uVelocity, velocity.read.bind(0));
+    gl.uniform1i(progAdvection.uniforms.uSource, velocity.read.bind(0));
+    gl.uniform1f(progAdvection.uniforms.dt, dt);
+    gl.uniform1f(progAdvection.uniforms.dissipation, CONFIG.VELOCITY_DISSIPATION);
+    blit(velocity.write); velocity.swap();
+
+    gl.uniform1i(progAdvection.uniforms.uVelocity, velocity.read.bind(0));
+    gl.uniform1i(progAdvection.uniforms.uSource, dye.read.bind(1));
+    gl.uniform1f(progAdvection.uniforms.dissipation, CONFIG.DENSITY_DISSIPATION);
+    blit(dye.write); dye.swap();
+
+    // 色IDも同じ流れで運ぶ。pigmentテクスチャはNEARESTなので、流されても
+    // 隣の色と線形補間で混ざることはない。IDの意味を壊さないよう減衰はしない
+    gl.uniform1i(progAdvection.uniforms.uVelocity, velocity.read.bind(0));
+    gl.uniform1i(progAdvection.uniforms.uSource, pigment.read.bind(1));
+    gl.uniform1f(progAdvection.uniforms.dissipation, 0.0);
+    blit(pigment.write); pigment.swap();
+  }
+
+  function setDisplayStops(uniforms) {
+    if (!COLOR_STOPS) return;
+    gl.uniform3f(uniforms.stop0, COLOR_STOPS[0][0], COLOR_STOPS[0][1], COLOR_STOPS[0][2]);
+    gl.uniform3f(uniforms.stop1, COLOR_STOPS[1][0], COLOR_STOPS[1][1], COLOR_STOPS[1][2]);
+    gl.uniform3f(uniforms.stop2, COLOR_STOPS[2][0], COLOR_STOPS[2][1], COLOR_STOPS[2][2]);
+    gl.uniform3f(uniforms.stop3, COLOR_STOPS[3][0], COLOR_STOPS[3][1], COLOR_STOPS[3][2]);
+  }
+
+  function render() {
+    useProgram(progDisplay);
+    setTexel(progDisplay.uniforms, dyeW, dyeH);
+    gl.uniform1i(progDisplay.uniforms.uDye, dye.read.bind(0));
+    gl.uniform1i(progDisplay.uniforms.uPigment, pigment.read.bind(1));
+    setDisplayStops(progDisplay.uniforms);
+    gl.uniform3f(progDisplay.uniforms.bgColor, BG_COLOR[0], BG_COLOR[1], BG_COLOR[2]);
+    gl.uniform1f(progDisplay.uniforms.mixAmount, colorMixAmount);
+    gl.uniform1f(progDisplay.uniforms.ditherOn, ditherEnabled ? 1.0 : 0.0);
+    blit(null);
+  }
+
+  function clearCanvas() {
+    useProgram(progClear);
+    gl.uniform1i(progClear.uniforms.uTexture, velocity.read.bind(0));
+    gl.uniform1f(progClear.uniforms.value, 0.0);
+    blit(velocity.write); velocity.swap();
+    gl.uniform1i(progClear.uniforms.uTexture, dye.read.bind(0));
+    blit(dye.write); dye.swap();
+    gl.uniform1i(progClear.uniforms.uTexture, pigment.read.bind(0));
+    blit(pigment.write); pigment.swap();
+  }
+
+  /* -----------------------------------------------------------
+   *  高画質PNG書き出し
+   * --------------------------------------------------------- */
+  // 要素の位置を、スマホフレームに対する比率（0〜1）で取得する。
+  // 書き出し画像にDOM要素（波形・文字）を正しい位置で合成するために使う
+  function getRelRect(el) {
+    const frameRect = phoneFrame.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    return {
+      x: (elRect.left - frameRect.left) / frameRect.width,
+      y: (elRect.top - frameRect.top) / frameRect.height,
+      w: elRect.width / frameRect.width,
+      h: elRect.height / frameRect.height,
+    };
+  }
+
+  // 縦書き風のテキストをCanvas上に描画する（angleRadで回転方向を指定）
+  function drawVerticalText(ctx2d, text, rect, outW, outH, scale, angleRad) {
+    const cx = (rect.x + rect.w / 2) * outW;
+    const cy = (rect.y + rect.h / 2) * outH;
+    const fontPx = Math.round(13 * scale);
+    ctx2d.save();
+    ctx2d.translate(cx, cy);
+    ctx2d.rotate(angleRad);
+    ctx2d.font = `500 ${fontPx}px 'Playfair Display', serif`;
+    ctx2d.fillStyle = "rgba(255,255,255,0.92)";
+    ctx2d.textAlign = "center";
+    ctx2d.textBaseline = "middle";
+    ctx2d.shadowColor = "rgba(0,0,0,0.35)";
+    ctx2d.shadowBlur = fontPx * 0.3;
+    ctx2d.fillText(text.split("").join(String.fromCharCode(0x2009)), 0, 0);
+    ctx2d.restore();
+  }
+
+  const EXPORT_LONG_EDGE = 3000;
+  async function exportHighResPNG() {
+    const aspect = canvas.width / canvas.height;
+    const w = aspect >= 1 ? EXPORT_LONG_EDGE : Math.round(EXPORT_LONG_EDGE * aspect);
+    const h = aspect >= 1 ? Math.round(EXPORT_LONG_EDGE / aspect) : EXPORT_LONG_EDGE;
+
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+
+    useProgram(progDisplay);
+    setTexel(progDisplay.uniforms, dyeW, dyeH);
+    gl.uniform1i(progDisplay.uniforms.uDye, dye.read.bind(0));
+    gl.uniform1i(progDisplay.uniforms.uPigment, pigment.read.bind(1));
+    setDisplayStops(progDisplay.uniforms);
+    gl.uniform3f(progDisplay.uniforms.bgColor, BG_COLOR[0], BG_COLOR[1], BG_COLOR[2]);
+    gl.uniform1f(progDisplay.uniforms.mixAmount, colorMixAmount);
+    gl.uniform1f(progDisplay.uniforms.ditherOn, ditherEnabled ? 1.0 : 0.0);
+    gl.viewport(0, 0, w, h);
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    const pixels = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    const outCanvas = document.createElement("canvas");
+    outCanvas.width = w; outCanvas.height = h;
+    const ctx2d = outCanvas.getContext("2d");
+    const imgData = ctx2d.createImageData(w, h);
+    const rowBytes = w * 4;
+    for (let y = 0; y < h; y++) {
+      const srcStart = (h - 1 - y) * rowBytes;
+      imgData.data.set(pixels.subarray(srcStart, srcStart + rowBytes), y * rowBytes);
+    }
+    ctx2d.putImageData(imgData, 0, 0);
+
+    // 中央の波形ビジュアルと、タイトル・日付の文字を書き出し画像にも焼き込む
+    const scale = w / phoneFrame.getBoundingClientRect().width;
+    const waveRect = getRelRect(waveCanvasEl);
+    ctx2d.drawImage(waveCanvasEl, waveRect.x * w, waveRect.y * h, waveRect.w * w, waveRect.h * h);
+
+    try { await document.fonts.ready; } catch (e) {}
+    const titleRect = getRelRect(document.getElementById("sideTitle"));
+    const dateRect = getRelRect(sideDateEl);
+    drawVerticalText(ctx2d, "Ink of Voice", titleRect, w, h, scale, -Math.PI / 2);
+    drawVerticalText(ctx2d, sideDateEl.textContent, dateRect, w, h, scale, Math.PI / 2);
+
+    outCanvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = "voice-pour-" + Date.now() + ".png";
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+
+    gl.deleteFramebuffer(fbo);
+    gl.deleteTexture(tex);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+
+  /* -----------------------------------------------------------
+   *  自己相関法によるピッチ（基本周波数）検出
+   * --------------------------------------------------------- */
+  function detectPitch(buf, sampleRate) {
+    const SIZE = buf.length;
+    let rms = 0;
+    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / SIZE);
+    if (rms < CONFIG.SILENCE_RMS) return { rms, pitch: -1 };
+
+    let start = 0, end = SIZE - 1;
+    const thresh = 0.2;
+    for (let i = 0; i < SIZE / 2; i++) { if (Math.abs(buf[i]) > thresh) { start = i; break; } }
+    for (let i = 1; i < SIZE / 2; i++) { if (Math.abs(buf[SIZE - i]) > thresh) { end = SIZE - i; break; } }
+    const trimmed = buf.subarray(start, end);
+    const n = trimmed.length;
+    if (n < 2) return { rms, pitch: -1 };
+
+    const corr = new Float32Array(n);
+    for (let lag = 0; lag < n; lag++) {
+      let sum = 0;
+      for (let i = 0; i < n - lag; i++) sum += trimmed[i] * trimmed[i + lag];
+      corr[lag] = sum;
+    }
+
+    let d = 0;
+    while (d < n - 1 && corr[d] > corr[d + 1]) d++;
+    let maxVal = -1, maxPos = -1;
+    for (let i = d; i < n; i++) { if (corr[i] > maxVal) { maxVal = corr[i]; maxPos = i; } }
+    if (maxPos <= 0) return { rms, pitch: -1 };
+
+    let T0 = maxPos;
+    const x1 = corr[T0 - 1] || corr[T0];
+    const x2 = corr[T0];
+    const x3 = corr[T0 + 1] || corr[T0];
+    const a = (x1 + x3 - 2 * x2) / 2;
+    const b = (x3 - x1) / 2;
+    if (a !== 0) T0 = T0 - b / (2 * a);
+
+    const pitch = sampleRate / T0;
+    if (pitch < 50 || pitch > 1500) return { rms, pitch: -1 };
+    return { rms, pitch };
+  }
+
+  /* -----------------------------------------------------------
+   *  マイク起動 & 声を「上から注ぐ絵の具」に変換する
+   * --------------------------------------------------------- */
+  let analyser = null, audioCtx = null, timeDomainData = null;
+  const micStartEl = document.getElementById("micStart");
+  let micActive = false;
+
+  async function startVoice() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      timeDomainData = new Float32Array(analyser.fftSize);
+      source.connect(analyser);
+      micStartEl.style.display = "none";
+      waveCanvasEl.classList.remove("hidden");
+      setupWaveCanvas();
+      document.getElementById("topBar").classList.remove("hidden");
+      document.getElementById("sideTitle").classList.remove("hidden");
+      document.getElementById("sideDate").classList.remove("hidden");
+      saveButton.classList.remove("hidden");
+      micActive = true;
+    } catch (err) {
+      micStartEl.querySelector("p").innerHTML =
+        "Couldn't access your microphone<span>Please allow microphone access in your browser settings</span>";
+    }
+  }
+  micStartEl.addEventListener("click", startVoice);
+
+  /* -----------------------------------------------------------
+   *  上部バー：Oil/Water（色の混ざり具合）/ Printボタン / 日付
+   * --------------------------------------------------------- */
+  const mixSlider = document.getElementById("mixSlider");
+  const saveButton = document.getElementById("saveButton");
+  const sideDateEl = document.getElementById("sideDate");
+
+  mixSlider.addEventListener("input", () => {
+    colorMixAmount = parseInt(mixSlider.value, 10) / 100;
+  });
+  saveButton.addEventListener("click", () => exportHighResPNG());
+
+  const today = new Date();
+  sideDateEl.textContent =
+    today.getFullYear() + "/" + String(today.getMonth() + 1).padStart(2, "0") + "/" + String(today.getDate()).padStart(2, "0");
+
+  // 指定した要素（光っている四角）の中心を、キャンバスの内部ピクセル座標に変換する
+  function elementCenterOnCanvas(el) {
+    const canvasRect = canvas.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const scaleX = canvas.width / canvasRect.width;
+    const scaleY = canvas.height / canvasRect.height;
+    return {
+      x: (elRect.left + elRect.width / 2 - canvasRect.left) * scaleX,
+      y: (elRect.top + elRect.height / 2 - canvasRect.top) * scaleY,
+    };
+  }
+
+  function pourFromVoice() {
+    if (!micActive) return;
+    analyser.getFloatTimeDomainData(timeDomainData);
+    const { rms, pitch } = detectPitch(timeDomainData, audioCtx.sampleRate);
+    if (pitch <= 0) {
+      pushWaveSample(lastVoiceColor, 0); // 無音の間は波形を振幅0で流し続ける
+      drawWave();
+      return;
+    }
+
+    const volumeT = Math.min(Math.max(rms / CONFIG.MAX_RMS, 0), 1);
+    const pitchT = Math.min(Math.max(
+      Math.log2(pitch / CONFIG.PITCH_MIN_HZ) / Math.log2(CONFIG.PITCH_MAX_HZ / CONFIG.PITCH_MIN_HZ), 0), 1);
+
+    const color = colorFromPitch(pitchT);
+    const force = CONFIG.POUR_FORCE_MIN + (CONFIG.POUR_FORCE_MAX - CONFIG.POUR_FORCE_MIN) * volumeT;
+
+    lastVoiceColor = color;
+    pushWaveSample(color, volumeT);
+    drawWave();
+
+    // 波形の中心そのものを「絵の具が出てくる源」にする
+    const origin = elementCenterOnCanvas(waveCanvasEl);
+
+    // 真下に落とすのではなく、源から同心円状に全方向へ広がるようにする
+    for (let i = 0; i < CONFIG.POUR_SPLATS_PER_FRAME; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spawnR = canvas.width * CONFIG.POUR_SPAWN_SPREAD;
+      const x = origin.x + Math.cos(angle) * spawnR;
+      const y = origin.y + Math.sin(angle) * spawnR;
+      const dx = Math.cos(angle) * force;
+      const dy = Math.sin(angle) * force;
+      splat(x, y, dx, dy, color, CONFIG.POUR_RADIUS, pitchT);
+    }
+  }
+
+  /* -----------------------------------------------------------
+   *  キーボードショートカット：S=高画質保存　C=キャンバスをクリア
+   * --------------------------------------------------------- */
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "s" || e.key === "S") exportHighResPNG();
+    if (e.key === "c" || e.key === "C") clearCanvas();
+  });
+
+  /* -----------------------------------------------------------
+   *  メインループ
+   * --------------------------------------------------------- */
+  let lastTime = performance.now();
+  function frame() {
+    resizeCanvas();
+    const now = performance.now();
+    let dt = (now - lastTime) / 1000;
+    dt = Math.min(dt, 0.033) * CONFIG.TIME_SCALE;
+    lastTime = now;
+
+    pourFromVoice();
+    step(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  resizeCanvas();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
