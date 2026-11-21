@@ -158,20 +158,89 @@
   #sideTitle { left: 16px; transform: translateY(-50%) rotate(180deg); }
   #sideDate { right: 16px; }
 
-  /* ---------- 下部：Printボタン ---------- */
-  #saveButton {
-    position: absolute; left: 16px; right: 16px; bottom: 18px; z-index: 16;
-    background: rgba(10,10,10,0.4);
-    border: 1px solid rgba(255,255,255,0.4);
-    border-radius: 8px;
-    color: #fff; font-family: 'Playfair Display', serif;
-    font-size: 12.5px; letter-spacing: 0.16em;
-    padding: 11px 0; text-align: center; cursor: pointer;
-    backdrop-filter: blur(3px);
-    transition: background 0.15s ease;
+  /* ---------- 下部：戻る／リセット／保存（アイコンのみ） ---------- */
+  #bottomBar {
+    position: absolute; left: 22px; right: 22px; bottom: 22px; z-index: 16;
+    display: flex; align-items: center; justify-content: space-between;
   }
-  #saveButton:active { background: rgba(10,10,10,0.65); }
-  #saveButton.hidden { display: none; }
+  #bottomBar.hidden { display: none; }
+  #bottomBar button {
+    background: none; border: none; padding: 6px; margin: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,0.35));
+    transition: opacity 0.15s ease;
+  }
+  #bottomBar button:active { opacity: 0.6; }
+  #bottomBar svg { width: 24px; height: 24px; }
+  #bottomBar.busy #printButton { opacity: 0.4; pointer-events: none; }
+
+  /* ---------- 保存前の確認モーダル ---------- */
+  #saveModal {
+    position: absolute; inset: 0; z-index: 40;
+    background: #ffffff;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 46px 26px 30px;
+  }
+  #saveModal.hidden { display: none; }
+  #saveModalBack {
+    position: absolute; left: 18px; top: 18px; z-index: 1;
+    width: 34px; height: 34px; border: none; background: transparent;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0;
+  }
+  #saveModalBack svg { width: 22px; height: 22px; }
+  #saveModalTitle {
+    font-family: 'Playfair Display', serif; font-weight: 500; font-size: 20px;
+    letter-spacing: 0.01em; color: #141414; margin: 0 0 30px;
+    text-align: center;
+  }
+  #saveModalPreviewWrap {
+    position: relative; width: 74%; margin: 0 0 34px;
+    /* aspect-ratio は JS から実際の書き出しサイズに合わせて設定する */
+    /* 壁に掛かった絵画のような、やわらかく広がる影 */
+    box-shadow:
+      0 18px 30px -12px rgba(30,25,20,0.28),
+      0 40px 60px -20px rgba(30,25,20,0.32),
+      0 70px 90px -30px rgba(30,25,20,0.22);
+  }
+  #saveModalPreviewWrap img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  #overlayToggleRow {
+    width: 100%; max-width: 280px; margin: 0 0 30px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    cursor: pointer;
+  }
+  .toggleLabel {
+    font-family: 'EB Garamond', serif; font-size: 14px; color: #141414;
+    letter-spacing: 0.02em;
+  }
+  .toggleTrackRow {
+    width: 100%; display: flex; align-items: center; gap: 12px;
+  }
+  .toggleEndLabel {
+    font-family: 'Playfair Display', serif; font-style: italic; font-size: 13px;
+    color: rgba(20,20,20,0.55); flex: none;
+  }
+  .toggleLine { position: relative; flex: 1; height: 1px; background: rgba(20,20,20,0.35); }
+  .toggleLine input {
+    position: absolute; left: 0; right: 0; top: -14px; bottom: -14px;
+    opacity: 0; margin: 0; cursor: pointer;
+  }
+  .toggleDot {
+    position: absolute; top: 50%; left: 2%;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #141414; transform: translate(-50%, -50%);
+    transition: left 0.18s ease; pointer-events: none;
+  }
+  #overlayToggle:not(:checked) ~ .toggleDot { left: 98%; }
+  #saveModalConfirm {
+    width: 100%; max-width: 280px; border: none; border-radius: 7px;
+    background: #B7B2A8; color: #fff;
+    font-family: 'Playfair Display', serif; font-size: 14px; letter-spacing: 0.1em;
+    padding: 13px 0; cursor: pointer;
+  }
+  #saveModalConfirm:active { background: #A39E93; }
 </style>
 </head>
 <body>
@@ -208,7 +277,40 @@
 </div>
 <div id="sideTitle" class="vText hidden">Ink of Voice</div>
 <div id="sideDate" class="vText hidden"></div>
-<button id="saveButton" class="hidden">Print</button>
+<div id="bottomBar" class="hidden">
+  <button id="backToColorsButton" aria-label="Back to colors">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+  </button>
+  <button id="resetInkButton" aria-label="Reset ink">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 1 0 18 16"/><path d="M20 5v6h-6"/></svg>
+  </button>
+  <button id="printButton" aria-label="Save">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"/><path d="M8 9l4 4 4-4"/><path d="M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg>
+  </button>
+</div>
+
+<!-- 保存前の確認モーダル：プレビュー＋タイトル/日付 ON・OFF -->
+<div id="saveModal" class="hidden">
+  <button id="saveModalBack" aria-label="Back">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+  </button>
+  <p id="saveModalTitle">Save this image?</p>
+  <div id="saveModalPreviewWrap">
+    <img id="saveModalPreview" alt="preview">
+  </div>
+  <label id="overlayToggleRow">
+    <span class="toggleLabel">Show title &amp; date</span>
+    <div class="toggleTrackRow">
+      <span class="toggleEndLabel">On</span>
+      <span class="toggleLine">
+        <input type="checkbox" id="overlayToggle" checked>
+        <span class="toggleDot"></span>
+      </span>
+      <span class="toggleEndLabel">Off</span>
+    </div>
+  </label>
+  <button id="saveModalConfirm">Print</button>
+</div>
 
 </div><!-- /#phoneFrame -->
 
@@ -1038,7 +1140,8 @@ void main () {
   }
 
   const EXPORT_LONG_EDGE = 3000;
-  async function exportHighResPNG() {
+  // GPUから絵の具の絵だけを高解像度で読み出し、オーバーレイ無しのcanvasを返す
+  function renderBaseExportCanvas() {
     const aspect = canvas.width / canvas.height;
     const w = aspect >= 1 ? EXPORT_LONG_EDGE : Math.round(EXPORT_LONG_EDGE * aspect);
     const h = aspect >= 1 ? Math.round(EXPORT_LONG_EDGE / aspect) : EXPORT_LONG_EDGE;
@@ -1080,7 +1183,21 @@ void main () {
     }
     ctx2d.putImageData(imgData, 0, 0);
 
-    // 中央の波形ビジュアルと、タイトル・日付の文字を書き出し画像にも焼き込む
+    gl.deleteFramebuffer(fbo);
+    gl.deleteTexture(tex);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    return { outCanvas, w, h };
+  }
+
+  // baseCanvasを複製した上に、波形ビジュアル・タイトル・日付を焼き込む
+  async function buildOverlaidCanvas(baseCanvas, w, h) {
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx2d = c.getContext("2d");
+    ctx2d.drawImage(baseCanvas, 0, 0);
+
     const scale = w / phoneFrame.getBoundingClientRect().width;
     const waveRect = getRelRect(waveCanvasEl);
     ctx2d.drawImage(waveCanvasEl, waveRect.x * w, waveRect.y * h, waveRect.w * w, waveRect.h * h);
@@ -1090,21 +1207,105 @@ void main () {
     const dateRect = getRelRect(sideDateEl);
     drawVerticalText(ctx2d, "Ink of Voice", titleRect, w, h, scale, -Math.PI / 2);
     drawVerticalText(ctx2d, sideDateEl.textContent, dateRect, w, h, scale, Math.PI / 2);
-
-    outCanvas.toBlob((blob) => {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.download = "voice-pour-" + Date.now() + ".png";
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
-    }, "image/png");
-
-    gl.deleteFramebuffer(fbo);
-    gl.deleteTexture(tex);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, canvas.width, canvas.height);
+    return c;
   }
+
+  function canvasToBlob(c) {
+    return new Promise((resolve) => c.toBlob(resolve, "image/png"));
+  }
+
+  async function shareOrDownloadBlob(blob) {
+    const filename = "ink-of-voice-" + Date.now() + ".png";
+    const file = new File([blob], filename, { type: "image/png" });
+
+    // スマホ（特にiPhoneのSafari）では、<a download> によるダウンロードは
+    // Photosアプリではなく「ファイル」アプリに保存されてしまう。
+    // Web Share API に対応している場合は共有シートを開き、
+    // そこから「画像を保存」でPhotosに直接保存できるようにする。
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch (err) {
+        // ユーザーが共有をキャンセルした場合などはダウンロードにフォールバックしない
+        if (err && err.name === "AbortError") return;
+      }
+    }
+
+    // Web Share API 非対応（PC のブラウザなど）はこれまで通りダウンロード
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.download = filename;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /* -----------------------------------------------------------
+   *  Printボタン：保存プレビュー（確認モーダル）
+   * --------------------------------------------------------- */
+  const saveModal = document.getElementById("saveModal");
+  const saveModalBack = document.getElementById("saveModalBack");
+  const saveModalPreviewWrap = document.getElementById("saveModalPreviewWrap");
+  const saveModalPreview = document.getElementById("saveModalPreview");
+  const overlayToggle = document.getElementById("overlayToggle");
+  const saveModalConfirm = document.getElementById("saveModalConfirm");
+
+  let exportCanvases = null;   // { withOverlay, withoutOverlay }
+  let currentPreviewURL = null;
+  let currentSaveBlob = null;
+  let overlayOn = true;
+
+  async function refreshSavePreview() {
+    if (!exportCanvases) return;
+    const c = overlayOn ? exportCanvases.withOverlay : exportCanvases.withoutOverlay;
+    const blob = await canvasToBlob(c);
+    currentSaveBlob = blob;
+    if (currentPreviewURL) URL.revokeObjectURL(currentPreviewURL);
+    currentPreviewURL = URL.createObjectURL(blob);
+    saveModalPreview.src = currentPreviewURL;
+  }
+
+  async function openSaveModal() {
+    if (bottomBar.classList.contains("busy")) return;
+    bottomBar.classList.add("busy");
+    try {
+      const { outCanvas, w, h } = renderBaseExportCanvas();
+      const withOverlay = await buildOverlaidCanvas(outCanvas, w, h);
+      exportCanvases = { withOverlay, withoutOverlay: outCanvas };
+      overlayOn = true;
+      overlayToggle.checked = true;
+      // プレビュー枠の縦横比を、実際の書き出し画像の比率に合わせる
+      saveModalPreviewWrap.style.aspectRatio = w + " / " + h;
+      await refreshSavePreview();
+      saveModal.classList.remove("hidden");
+    } finally {
+      bottomBar.classList.remove("busy");
+    }
+  }
+
+  function closeSaveModal() {
+    saveModal.classList.add("hidden");
+    if (currentPreviewURL) { URL.revokeObjectURL(currentPreviewURL); currentPreviewURL = null; }
+    exportCanvases = null;
+    currentSaveBlob = null;
+  }
+
+  overlayToggle.addEventListener("change", () => {
+    overlayOn = overlayToggle.checked;
+    refreshSavePreview();
+  });
+  // プレビュー・トグル・ボタン以外の余白部分をタップすると、保存せずに閉じる
+  saveModal.addEventListener("click", (e) => {
+    if (e.target === saveModal) closeSaveModal();
+  });
+  saveModalBack.addEventListener("click", closeSaveModal);
+  saveModalConfirm.addEventListener("click", async () => {
+    if (!currentSaveBlob) return;
+    const blob = currentSaveBlob;
+    closeSaveModal();
+    await shareOrDownloadBlob(blob);
+  });
 
   /* -----------------------------------------------------------
    *  自己相関法によるピッチ（基本周波数）検出
@@ -1177,7 +1378,7 @@ void main () {
       document.getElementById("topBar").classList.remove("hidden");
       document.getElementById("sideTitle").classList.remove("hidden");
       document.getElementById("sideDate").classList.remove("hidden");
-      saveButton.classList.remove("hidden");
+      bottomBar.classList.remove("hidden");
       micActive = true;
     } catch (err) {
       console.error("startVoice failed:", err);
@@ -1200,13 +1401,18 @@ void main () {
    *  上部バー：Oil/Water（色の混ざり具合）/ Printボタン / 日付
    * --------------------------------------------------------- */
   const mixSlider = document.getElementById("mixSlider");
-  const saveButton = document.getElementById("saveButton");
+  const bottomBar = document.getElementById("bottomBar");
+  const backToColorsButton = document.getElementById("backToColorsButton");
+  const resetInkButton = document.getElementById("resetInkButton");
+  const printButton = document.getElementById("printButton");
   const sideDateEl = document.getElementById("sideDate");
 
   mixSlider.addEventListener("input", () => {
     colorMixAmount = parseInt(mixSlider.value, 10) / 100;
   });
-  saveButton.addEventListener("click", () => exportHighResPNG());
+  printButton.addEventListener("click", () => openSaveModal());
+  resetInkButton.addEventListener("click", () => clearCanvas());
+  backToColorsButton.addEventListener("click", () => location.reload());
 
   const today = new Date();
   sideDateEl.textContent =
@@ -1264,7 +1470,7 @@ void main () {
    *  キーボードショートカット：S=高画質保存　C=キャンバスをクリア
    * --------------------------------------------------------- */
   window.addEventListener("keydown", (e) => {
-    if (e.key === "s" || e.key === "S") exportHighResPNG();
+    if (e.key === "s" || e.key === "S") openSaveModal();
     if (e.key === "c" || e.key === "C") clearCanvas();
   });
 
