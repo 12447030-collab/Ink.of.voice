@@ -11,6 +11,7 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
+    height: 100dvh; /* Safariのツールバー分を差し引いた、実際に見えている高さ */
     overflow: hidden; background: #2A2A2A; /* スマホフレームの外側（周囲の背景） */
     overscroll-behavior: none;
     font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
@@ -22,6 +23,7 @@
     position: relative;
     width: 390px; height: 844px; /* iPhone相当のサイズ。実機では画面いっぱいに広げる想定 */
     max-width: 100vw; max-height: 100vh;
+    max-height: 100dvh; /* Safariのアドレスバー分を考慮し、上下のUIが見切れないようにする */
     overflow: hidden;
     background: #EFEDE7;
     border-radius: 28px;
